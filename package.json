@@ -1,0 +1,14 @@
+{
+  "name": "pi-fetch-url",
+  "version": "1.0.0",
+  "description": "Pi extension: fetch web pages and extract readable content using Mozilla Readability",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0",
+    "linkedom": "^0.18.0"
+  },
+  "pi": {
+    "extensions": ["./extensions/fetch-url.ts"]
+  }
+}

@@ -9,6 +9,8 @@
  * - Falls back to basic HTML-to-text if Readability can't parse
  * - Supports raw mode for non-HTML content (JSON, plain text, etc.)
  * - Proper output truncation for large pages
+ * - Configurable timeout (default 30s, max 120s)
+ * - Cloudflare bot-detection bypass (retries with honest UA)
  * - Custom TUI rendering
  *
  * Usage: place in ~/.pi/agent/extensions/fetch-url/
@@ -26,6 +28,9 @@ import { Type } from "@sinclair/typebox";
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 
+const DEFAULT_TIMEOUT = 30_000;
+const MAX_TIMEOUT = 120_000;
+
 const FetchParams = Type.Object({
 	url: Type.String({ description: "URL to fetch" }),
 	raw: Type.Optional(
@@ -36,6 +41,11 @@ const FetchParams = Type.Object({
 	headers: Type.Optional(
 		Type.Record(Type.String(), Type.String(), {
 			description: "Optional HTTP headers to send with the request, e.g. { \"Authorization\": \"Bearer ...\" }",
+		})
+	),
+	timeout: Type.Optional(
+		Type.Number({
+			description: "Timeout in seconds (default: 30, max: 120)",
 		})
 	),
 });
@@ -54,7 +64,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "fetch_url",
 		label: "Fetch URL",
-		description: `Fetch a web page and extract its readable content (article text, stripping navigation/ads/scripts). Uses Mozilla Readability (Firefox Reader View engine). Output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}. Use raw=true for JSON APIs or plain text endpoints.`,
+		description: `Fetch a web page and extract its readable content (article text, stripping navigation/ads/scripts). Uses Mozilla Readability (Firefox Reader View engine). Output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}. Use raw=true for JSON APIs or plain text endpoints. Supports optional timeout in seconds (default 30, max 120).`,
 		parameters: FetchParams,
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
@@ -63,6 +73,13 @@ export default function (pi: ExtensionAPI) {
 			onUpdate?.({
 				content: [{ type: "text", text: `Fetching ${url}...` }],
 			});
+
+			// Timeout: combine user timeout with abort signal
+			const timeout = Math.min((params.timeout ?? DEFAULT_TIMEOUT / 1000) * 1000, MAX_TIMEOUT);
+			const controller = new AbortController();
+			const timer = setTimeout(() => controller.abort(), timeout);
+			// Forward external abort signal
+			signal?.addEventListener("abort", () => controller.abort(), { once: true });
 
 			// Fetch the URL
 			let response: Response;
@@ -74,18 +91,34 @@ export default function (pi: ExtensionAPI) {
 					...headers,
 				};
 
-				response = await fetch(url, {
+				const initial = await fetch(url, {
 					headers: fetchHeaders,
-					signal: signal ?? undefined,
+					signal: controller.signal,
 					redirect: "follow",
 				});
+
+				// Cloudflare bot-detection bypass: retry with honest UA on TLS fingerprint mismatch
+				if (initial.status === 403 && initial.headers.get("cf-mitigated") === "challenge") {
+					response = await fetch(url, {
+						headers: { ...fetchHeaders, "User-Agent": "pi-fetch-url" },
+						signal: controller.signal,
+						redirect: "follow",
+					});
+				} else {
+					response = initial;
+				}
 			} catch (err: any) {
-				const errorMsg = err.name === "AbortError" ? "Request cancelled" : `Fetch failed: ${err.message}`;
+				clearTimeout(timer);
+				const errorMsg = err.name === "AbortError"
+					? (signal?.aborted ? "Request cancelled" : `Request timed out after ${timeout / 1000}s`)
+					: `Fetch failed: ${err.message}`;
 				return {
 					content: [{ type: "text", text: errorMsg }],
 					details: { url, contentLength: 0, truncated: false, error: errorMsg } as FetchDetails,
 					isError: true,
 				};
+			} finally {
+				clearTimeout(timer);
 			}
 
 			if (!response.ok) {

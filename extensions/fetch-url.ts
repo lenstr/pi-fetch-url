@@ -109,7 +109,8 @@ export default function (pi: ExtensionAPI) {
 				}
 			} catch (err: any) {
 				clearTimeout(timer);
-				const errorMsg = err.name === "AbortError"
+				const aborted = controller.signal.aborted || err.name === "AbortError";
+				const errorMsg = aborted
 					? (signal?.aborted ? "Request cancelled" : `Request timed out after ${timeout / 1000}s`)
 					: `Fetch failed: ${err.message}`;
 				return {

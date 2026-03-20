@@ -10,8 +10,16 @@ Uses [Mozilla Readability](https://github.com/mozilla/readability) (the same eng
 - 📰 Metadata: title, author, site name
 - 🔧 Raw mode (`raw=true`) for JSON APIs and plain text endpoints
 - 📎 Custom HTTP headers support
-- ✂️ Automatic output truncation to stay within LLM context limits
+- ⏱️ Configurable timeout (`timeout`, default 30s, max 120s)
+- ✂️ Automatic output truncation to stay within LLM context limits, with full output saved to a temp file
 - 🎨 Custom TUI rendering
+
+## Compatibility
+
+Updated for the current pi extension API (`@mariozechner/pi-coding-agent` 0.61.x):
+- uses `promptSnippet` / `promptGuidelines` so the tool is advertised correctly to the model
+- throws tool errors instead of returning `isError`, matching current pi error handling
+- declares pi core imports as `peerDependencies`, per current pi package guidance
 
 ## Install
 
@@ -40,6 +48,7 @@ Fetch https://api.example.com/data.json in raw mode
 | `url` | string | URL to fetch (required) |
 | `raw` | boolean | Skip Readability extraction, return raw content (default: false) |
 | `headers` | object | Custom HTTP headers, e.g. `{ "Authorization": "Bearer ..." }` |
+| `timeout` | number | Timeout in seconds (default: 30, max: 120) |
 
 ## License
 
